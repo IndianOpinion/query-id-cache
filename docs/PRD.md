@@ -19,7 +19,7 @@ post IDs belong in each list: ordering every published post by a meta value
 or by comment count, or counting a large category for pagination. The posts
 themselves load quickly by primary key.
 
-Measured on a production news front page with about 85 card-list widgets: a
+Measured on a production news front page built from many card-list widgets: a
 cache-miss render took 2.2 to 2.5 s against 0.6 to 0.7 s for an article
 page, and almost all of it was SQL: 639 queries, the slowest ordering every
 published post by a view-count meta value at 164 to 169 ms each.
@@ -605,6 +605,14 @@ small fake `WP_Query`. Each test names the cases it covers.
     `InvalidSignature` (5.1).
 55. The debug header appears only when enabled and only on eligible
     anonymous responses, with counts only (11, section 8).
+56. The README states that a query with `suppress_filters` is never seen
+    by the plugin; a test confirms the plugin adds no cache behaviour to
+    such a query (9).
+57. A sticky-post change drops entries that a theme's own sticky emulation
+    cached, and the main home query is never served (42, 49).
+58. Two store instances sharing one object cache: a bump made through one
+    makes the other miss, and an entry stamped more than 60 s ahead is a
+    miss (18, 34, 53).
 
 ## 13. Open questions
 
