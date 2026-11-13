@@ -20,7 +20,7 @@ uses [Semantic Versioning](https://semver.org/).
   opt-in and opt-out.
 - Fresh and TTL freshness classes, with `auto` choosing by order.
 - Term-scoped invalidation on publish, unpublish, order-relevant updates,
-  permanent delete, term assignment, term edit, delete and split, and
+  permanent delete, term assignment, term creation, edit, delete and split, and
   sticky changes, in every context.
 - Transient (single blob) and object cache (per entry) stores, chosen
   automatically, replaceable through `query_id_cache_store`.
