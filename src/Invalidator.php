@@ -173,6 +173,18 @@ final class Invalidator
     }
 
     /**
+     * Action: created_term (case 41). Lists scoped to the new term's
+     * ancestors were expanded without it; a post later published into it
+     * would not meet their scope, so they go now and rebuild with it.
+     */
+    public function on_created_term(mixed $term_id, mixed $tt_id, mixed $taxonomy): void
+    {
+        $this->guard(function () use ($term_id, $taxonomy): void {
+            $this->drop_terms('term-create', $this->ancestor_tt_ids((int) $term_id, (string) $taxonomy));
+        });
+    }
+
+    /**
      * Action: delete_term (case 41).
      */
     public function on_delete_term(mixed $term, mixed $tt_id, mixed $taxonomy = null, mixed $deleted = null, mixed $object_ids = null): void

@@ -79,6 +79,7 @@ final class Plugin
         add_action('set_object_terms', [$this->invalidator, 'on_set_terms'], 10, 6);
         add_action('before_delete_post', [$this->invalidator, 'on_before_delete'], 10, 2);
         add_action('deleted_post', [$this->invalidator, 'on_deleted'], 10, 2);
+        add_action('created_term', [$this->invalidator, 'on_created_term'], 10, 3);
         add_action('edit_term', [$this->invalidator, 'on_edit_term'], 10, 3);
         add_action('edited_term', [$this->invalidator, 'on_edited_term'], 10, 3);
         add_action('delete_term', [$this->invalidator, 'on_delete_term'], 10, 5);

@@ -169,17 +169,47 @@ final class RecordTest extends TestCase
     /** @return iterable<string, array{array<mixed>, list<int>, bool}> */
     public static function scopes(): iterable
     {
-        $in = static fn (array $t, string $op = 'IN') => ['taxonomy' => 'category', 'terms' => $t, 'field' => 'term_taxonomy_id', 'operator' => $op, 'include_children' => true];
+        // Clauses as WP_Tax_Query::$queries holds them: as written, with
+        // sanitize_query() defaults. Fixture: news(10) > india(11) > delhi(12),
+        // sport(20), opinion(30); tags budget(40), monsoon(41).
+        $cat = static fn (array $t, string $field = 'term_id', string $op = 'IN', bool $kids = true) => [
+            'taxonomy' => 'category', 'terms' => $t, 'field' => $field, 'operator' => $op, 'include_children' => $kids,
+        ];
+        $tag = static fn (array $t, string $op = 'IN') => ['taxonomy' => 'post_tag', 'terms' => $t, 'field' => 'slug', 'operator' => $op, 'include_children' => true];
         yield 'no tax query' => [[], [], true];
-        yield 'IN with expanded children' => [[$in([10, 11, 12])], [10, 11, 12], false];
-        yield 'AND operator' => [[$in([7, 8], 'AND')], [7, 8], false];
-        yield 'NOT IN only' => [[$in([5], 'NOT IN')], [], true];
-        yield 'NOT EXISTS only' => [[$in([], 'NOT EXISTS')], [], true];
-        yield 'IN and NOT IN' => [['relation' => 'AND', $in([3]), $in([5], 'NOT IN')], [3], false];
-        yield 'OR with exclusion' => [['relation' => 'OR', $in([3]), $in([5], 'NOT IN')], [], true];
-        yield 'OR of two IN' => [['relation' => 'OR', $in([3]), $in([4])], [3, 4], false];
-        yield 'nested' => [['relation' => 'AND', ['relation' => 'OR', $in([9]), $in([2])], $in([6], 'NOT IN')], [2, 9], false];
-        yield 'not yet transformed' => [[['taxonomy' => 'category', 'terms' => ['news'], 'field' => 'slug', 'operator' => 'IN']], [], true];
+        yield 'term ID with children expanded' => [[$cat([1])], [10, 11, 12], false];
+        yield 'slug with children expanded' => [[$cat(['india'], 'slug')], [11, 12], false];
+        yield 'include_children off' => [[$cat(['news'], 'slug', 'IN', false)], [10], false];
+        yield 'term_taxonomy_id still expands children' => [[$cat([10], 'term_taxonomy_id')], [10, 11, 12], false];
+        $no_tax = ['taxonomy' => '', 'terms' => [10], 'field' => 'term_taxonomy_id', 'operator' => 'IN', 'include_children' => true];
+        yield 'no taxonomy, term_taxonomy_id' => [[$no_tax], [10], false];
+        yield 'flat taxonomy' => [[$tag(['budget'])], [40], false];
+        yield 'AND operator' => [[$tag(['budget', 'monsoon'], 'AND')], [40, 41], false];
+        yield 'AND with a missing term' => [[$tag(['budget', 'nope'], 'AND')], [], true];
+        yield 'unknown slug' => [[$cat(['nope'], 'slug')], [], true];
+        yield 'unknown taxonomy' => [[['taxonomy' => 'genre', 'terms' => [1], 'field' => 'term_id', 'operator' => 'IN', 'include_children' => true]], [], true];
+        yield 'NOT IN only' => [[$cat([4], 'term_id', 'NOT IN')], [], true];
+        yield 'NOT EXISTS only' => [[$cat([], 'term_id', 'NOT EXISTS')], [], true];
+        yield 'IN and NOT IN' => [['relation' => 'AND', $cat([4]), $cat([5], 'term_id', 'NOT IN')], [20], false];
+        yield 'OR with exclusion' => [['relation' => 'OR', $cat([4]), $cat([5], 'term_id', 'NOT IN')], [], true];
+        yield 'OR of two IN' => [['relation' => 'OR', $cat([4]), $cat([5])], [20, 30], false];
+        yield 'nested' => [['relation' => 'AND', ['relation' => 'OR', $cat([3]), $tag(['monsoon'])], $cat([4], 'term_id', 'NOT IN')], [12, 41], false];
+    }
+
+    /**
+     * Test 25, end to end: a list of a parent category queried by slug is
+     * dropped when a post is published into a grandchild (cases 30, 36).
+     */
+    public function test_parent_slug_list_dropped_by_grandchild_publish(): void
+    {
+        $q = $this->query(['category_name' => 'news'], [1, 2]);
+        $q->tax_query = new WP_Tax_Query([['taxonomy' => 'category', 'terms' => ['news'], 'field' => 'slug', 'operator' => 'IN', 'include_children' => true]]);
+        $q->query();
+        $this->shutdown();
+        $this->assertSame([10, 11, 12], array_values($this->blob_entries())[0]['scope']);
+
+        do_action('transition_post_status', 'publish', 'future', WpStub::add_post(70, 'publish', 'post', [12]));
+        $this->assertSame([], $this->blob_entries());
     }
 
     /**

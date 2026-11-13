@@ -39,6 +39,12 @@ final class WpStub
     public static array $ancestors = [];
     /** @var array<int, int> term id => tt id */
     public static array $term_tt = [];
+    /**
+     * Terms WP_Tax_Query::transform_query() and get_term_children() see.
+     *
+     * @var list<array{id: int, tt: int, tax: string, slug: string, parent: int}>
+     */
+    public static array $tax_terms = [];
     public static int $blog_id = 1;
     /** @var list<int> */
     public static array $blog_stack = [];
@@ -67,6 +73,7 @@ final class WpStub
         self::$post_terms = [];
         self::$ancestors = [];
         self::$term_tt = [];
+        self::$tax_terms = self::default_terms();
         self::$blog_id = 1;
         self::$blog_stack = [];
         self::$sites = [1];
@@ -81,6 +88,24 @@ final class WpStub
         $_GET = [];
         $_POST = [];
         unset($GLOBALS['wp_the_query']);
+    }
+
+    /**
+     * A small category tree (news > india > delhi, sport, opinion) and two tags.
+     *
+     * @return list<array{id: int, tt: int, tax: string, slug: string, parent: int}>
+     */
+    public static function default_terms(): array
+    {
+        return [
+            ['id' => 1, 'tt' => 10, 'tax' => 'category', 'slug' => 'news', 'parent' => 0],
+            ['id' => 2, 'tt' => 11, 'tax' => 'category', 'slug' => 'india', 'parent' => 1],
+            ['id' => 3, 'tt' => 12, 'tax' => 'category', 'slug' => 'delhi', 'parent' => 2],
+            ['id' => 4, 'tt' => 20, 'tax' => 'category', 'slug' => 'sport', 'parent' => 0],
+            ['id' => 5, 'tt' => 30, 'tax' => 'category', 'slug' => 'opinion', 'parent' => 0],
+            ['id' => 6, 'tt' => 40, 'tax' => 'post_tag', 'slug' => 'budget', 'parent' => 0],
+            ['id' => 7, 'tt' => 41, 'tax' => 'post_tag', 'slug' => 'monsoon', 'parent' => 0],
+        ];
     }
 
     public static function flag(string $name): bool
@@ -120,11 +145,43 @@ final class WP_Error
 }
 
 /**
- * Fake tax query: `queries` holds clauses already rewritten to
- * term_taxonomy_id, as WP_Tax_Query leaves them after building SQL.
+ * Fake tax query. Like core, `queries` holds the clauses as the caller
+ * wrote them: core transforms a copy when it builds the SQL.
  */
 final class WP_Tax_Query
 {
+    /**
+     * Core's transform_query() over WpStub::$tax_terms.
+     *
+     * @param array<mixed>|WP_Error $query
+     */
+    public function transform_query(&$query, $resulting_field): void
+    {
+        if (empty($query['terms']) || $query['field'] === $resulting_field) {
+            return;
+        }
+        $terms = array_filter((array) $query['terms']);
+        if ($terms === []) {
+            $query['terms'] = [];
+            $query['field'] = $resulting_field;
+            return;
+        }
+        $key  = ['term_id' => 'id', 'term_taxonomy_id' => 'tt', 'slug' => 'slug', 'name' => 'slug'];
+        $from = $key[$query['field']] ?? 'id';
+        $list = [];
+        foreach (WpStub::$tax_terms as $row) {
+            if (($query['taxonomy'] === '' || $row['tax'] === $query['taxonomy']) && in_array($row[$from], $terms, false)) {
+                $list[] = $row;
+            }
+        }
+        if ($query['operator'] === 'AND' && count($list) < count($query['terms'])) {
+            $query = new WP_Error();
+            return;
+        }
+        $query['terms'] = array_map(static fn (array $row) => $row[$key[$resulting_field]], $list);
+        $query['field'] = $resulting_field;
+    }
+
     public string $relation = 'AND';
 
     /** @param array<mixed> $queries */
@@ -488,6 +545,32 @@ function wp_get_object_terms(int $id, array $taxonomies, array $args = []): arra
         return new WP_Error();
     }
     return WpStub::$post_terms[$id] ?? [];
+}
+function taxonomy_exists(string $taxonomy): bool
+{
+    return in_array($taxonomy, ['category', 'post_tag'], true);
+}
+function is_taxonomy_hierarchical(string $taxonomy): bool
+{
+    return $taxonomy === 'category';
+}
+/** @return list<int> */
+function get_term_children(int $term_id, string $taxonomy): array
+{
+    $out = [];
+    foreach (WpStub::$tax_terms as $row) {
+        if ($row['tax'] === $taxonomy && $row['parent'] === $term_id) {
+            $out[] = $row['id'];
+            $out   = array_merge($out, get_term_children($row['id'], $taxonomy));
+        }
+    }
+    return $out;
+}
+/** @return array<int> */
+function wp_parse_id_list(mixed $list): array
+{
+    $list = is_array($list) ? $list : preg_split('/[\s,]+/', (string) $list, -1, PREG_SPLIT_NO_EMPTY);
+    return array_unique(array_map(static fn ($v): int => abs((int) $v), (array) $list));
 }
 function get_ancestors(int $id, string $object_type = '', string $resource_type = ''): array
 {

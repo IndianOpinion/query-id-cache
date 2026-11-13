@@ -131,7 +131,7 @@ Other functions, all in the `IndianOpinion\QueryIdCache` namespace: `unregister_
 
 **Freshness classes.** `fresh` lists (ordered by date, modified date, ID, or not ordered) are dropped by any publish change that could alter them. `ttl` lists (meta value, comment count, title, menu order) live out their time to live: popularity lists may lag by design. `auto` picks by the order.
 
-**Term scope.** Read from the parsed tax query after WordPress expanded child terms: the term taxonomy IDs of `IN` and `AND` clauses. A list with no term filter, or only an exclusion (`NOT IN`, `NOT EXISTS`, `category__not_in`), reads everything.
+**Term scope.** Read from the parsed tax query: the term taxonomy IDs of `IN` and `AND` clauses, resolved and expanded to child terms the same way WordPress does when it builds the SQL (any `field`, `include_children` honoured). A clause whose terms cannot be resolved reads everything. A list with no term filter, or only an exclusion (`NOT IN`, `NOT EXISTS`, `category__not_in`), reads everything.
 
 **Storage.** Without a persistent object cache, one transient holds a single blob: one database read per request, not one per query. Its expiry is twice the largest time to live and each entry's age is checked on read. With a persistent object cache (Redis, Memcached), each entry is its own cache item under a generation number; any invalidation bumps the generation and orphans every entry at once.
 
@@ -160,6 +160,7 @@ Invalidation runs in every context (admin, REST, cron, WP-CLI, AJAX, imports), b
 | Permanent delete | `before_delete_post` reads status and terms, `deleted_post` acts | As for an unpublish |
 | Terms change on a published post | `set_object_terms` (old and new term taxonomy IDs) | Fresh entries meeting either set or reading everything, plus entries in scope containing the post |
 | Term edit, delete or split | `edit_term`, `edited_term`, `delete_term`, `split_shared_term` | Every entry whose scope holds the term (or, for an edit, its old or new ancestors) |
+| New child term | `created_term` | Every entry whose scope holds one of its ancestors, so lists of the parent rebuild with the new child |
 | Sticky list change | `add_option_sticky_posts`, `update_option_sticky_posts` | Everything |
 | Manual | `flush()`, `wp query-id-cache flush` | Everything, and bumps the generation |
 

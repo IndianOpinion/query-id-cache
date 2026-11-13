@@ -218,6 +218,21 @@ final class InvalidationTest extends TestCase
     }
 
     /**
+     * Test 36: a new child term drops entries scoped to its ancestors, so
+     * lists of the parent rebuild with the child in their scope (case 41).
+     */
+    public function test_term_create_drops_ancestor_scopes(): void
+    {
+        WpStub::$ancestors[50] = [2];
+        WpStub::$term_tt[2] = 20;
+        do_action('created_term', 50, 51, 'category');
+        $this->assertSame(['fresh_a', 'fresh_all', 'page_a', 'ttl_a', 'ttl_all'], $this->keys());
+
+        do_action('created_term', 60, 61, 'category'); // Top-level: no ancestors, nothing to drop.
+        $this->assertSame(['term-create:1'], $this->events);
+    }
+
+    /**
      * Tests 37 and 57: a sticky change drops every entry, including a theme's sticky emulation (cases 42, 49).
      */
     public function test_sticky_change(): void

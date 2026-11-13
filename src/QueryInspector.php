@@ -237,10 +237,16 @@ final class QueryInspector
     }
 
     /**
-     * Term scope (cases 30 to 32): term taxonomy IDs from IN and AND
-     * clauses of the parsed tax query, after WordPress expanded children.
-     * Returns [scope, reads_all]. No narrowing clause means it reads
-     * everything; so does any clause that is only an exclusion.
+     * Term scope (cases 30 to 32): term taxonomy IDs of the IN and AND
+     * clauses of the parsed tax query, with child terms expanded the way
+     * WordPress expands them when it builds the SQL. Returns
+     * [scope, reads_all]. No narrowing clause means it reads everything;
+     * so does any clause that is only an exclusion, and any clause whose
+     * terms cannot be resolved.
+     *
+     * `WP_Tax_Query::$queries` keeps the clauses as the caller wrote them
+     * (core transforms a copy when it builds the SQL), so each clause is
+     * resolved here with the same steps as `WP_Tax_Query::clean_query()`.
      *
      * @return array{0: list<int>, 1: bool}
      */
@@ -250,7 +256,7 @@ final class QueryInspector
         if (! $tax_query instanceof \WP_Tax_Query || $tax_query->queries === []) {
             return [[], true];
         }
-        $scope = self::scope_of_group($tax_query->queries, $tax_query->relation);
+        $scope = self::scope_of_group($tax_query, $tax_query->queries, $tax_query->relation);
         if ($scope === null) {
             return [[], true];
         }
@@ -265,7 +271,7 @@ final class QueryInspector
      *
      * @return list<int>|null
      */
-    private static function scope_of_group(array $group, string $relation): ?array
+    private static function scope_of_group(\WP_Tax_Query $tax_query, array $group, string $relation): ?array
     {
         $relation = strtoupper($group['relation'] ?? $relation) === 'OR' ? 'OR' : 'AND';
         $narrowed = [];
@@ -277,7 +283,7 @@ final class QueryInspector
                 continue;
             }
             $children++;
-            $child = self::is_first_order_clause($clause) ? self::scope_of_clause($clause) : self::scope_of_group($clause, 'AND');
+            $child = self::is_first_order_clause($clause) ? self::scope_of_clause($tax_query, $clause) : self::scope_of_group($tax_query, $clause, 'AND');
             if ($child === null) {
                 $any_all = true;
             } else {
@@ -304,25 +310,69 @@ final class QueryInspector
     }
 
     /**
+     * Term taxonomy IDs one IN or AND clause reads, children included, or
+     * null when it reads everything or cannot be resolved.
+     *
      * @param array<mixed> $clause
      *
      * @return list<int>|null
      */
-    private static function scope_of_clause(array $clause): ?array
+    private static function scope_of_clause(\WP_Tax_Query $tax_query, array $clause): ?array
     {
         $operator = strtoupper(is_string($clause['operator'] ?? null) ? $clause['operator'] : 'IN');
         if ($operator !== 'IN' && $operator !== 'AND') {
             return null;
         }
-        if (($clause['field'] ?? '') !== 'term_taxonomy_id') {
-            // WordPress rewrites every clause to term_taxonomy_id when it
-            // builds the SQL. Anything else means we cannot be sure.
+        $taxonomy = is_string($clause['taxonomy'] ?? null) ? $clause['taxonomy'] : '';
+        $field    = is_string($clause['field'] ?? null) && $clause['field'] !== '' ? $clause['field'] : 'term_id';
+        $clause['operator'] = $operator;
+        $clause['field']    = $field;
+        $clause['taxonomy'] = $taxonomy;
+
+        if ($taxonomy === '') {
+            if ($field !== 'term_taxonomy_id') {
+                return null;
+            }
+            $clause['include_children'] = false;
+        } elseif (! taxonomy_exists($taxonomy)) {
             return null;
         }
+
         $terms = $clause['terms'] ?? [];
-        $terms = is_array($terms) ? $terms : [$terms];
-        $ids   = [];
-        foreach ($terms as $term) {
+        if ($field === 'slug' || $field === 'name') {
+            $clause['terms'] = array_values(array_unique(array_map('strval', array_filter((array) $terms, 'is_scalar'))));
+        } else {
+            $clause['terms'] = wp_parse_id_list($terms);
+        }
+        if ($clause['terms'] === []) {
+            return null;
+        }
+
+        // Same steps as WP_Tax_Query::clean_query(): expand children by
+        // term ID, then convert everything to term taxonomy IDs.
+        if ($taxonomy !== '' && is_taxonomy_hierarchical($taxonomy) && (bool) ($clause['include_children'] ?? true)) {
+            $tax_query->transform_query($clause, 'term_id');
+            if (! is_array($clause) || ($clause['field'] ?? '') !== 'term_id') {
+                return null;
+            }
+            $expanded = [];
+            foreach ((array) $clause['terms'] as $term_id) {
+                $kids = get_term_children((int) $term_id, $taxonomy);
+                if (! is_array($kids)) {
+                    return null;
+                }
+                $expanded   = array_merge($expanded, $kids);
+                $expanded[] = (int) $term_id;
+            }
+            $clause['terms'] = $expanded;
+        }
+
+        $tax_query->transform_query($clause, 'term_taxonomy_id');
+        if (! is_array($clause) || ($clause['field'] ?? '') !== 'term_taxonomy_id') {
+            return null;
+        }
+        $ids = [];
+        foreach ((array) $clause['terms'] as $term) {
             if (is_numeric($term) && (int) $term > 0) {
                 $ids[] = (int) $term;
             }
