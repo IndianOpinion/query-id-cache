@@ -1,0 +1,36 @@
+<?xml version="1.0"?>
+<ruleset name="query-id-cache">
+    <description>PSR-12, with WordPress-style snake_case method names (the public API in the PRD uses them).</description>
+
+    <file>src</file>
+    <file>tests</file>
+    <file>examples</file>
+    <file>query-id-cache.php</file>
+    <file>uninstall.php</file>
+
+    <exclude-pattern>tests/stubs/*</exclude-pattern>
+    <exclude-pattern>vendor/*</exclude-pattern>
+
+    <arg name="extensions" value="php"/>
+    <arg name="colors"/>
+    <arg value="sp"/>
+
+    <rule ref="PSR12">
+        <exclude name="PSR1.Methods.CamelCapsMethodName"/>
+    </rule>
+
+    <!-- Entry points and the Composer-free autoloader declare and act in one file by design. -->
+    <rule ref="PSR1.Files.SideEffects">
+        <exclude-pattern>query-id-cache.php</exclude-pattern>
+        <exclude-pattern>uninstall.php</exclude-pattern>
+        <exclude-pattern>src/autoload.php</exclude-pattern>
+        <exclude-pattern>examples/*</exclude-pattern>
+    </rule>
+
+    <rule ref="Generic.Files.LineLength">
+        <properties>
+            <property name="lineLimit" value="180"/>
+            <property name="absoluteLineLimit" value="0"/>
+        </properties>
+    </rule>
+</ruleset>
