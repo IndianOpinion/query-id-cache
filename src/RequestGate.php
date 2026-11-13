@@ -8,10 +8,10 @@ namespace IndianOpinion\QueryIdCache;
  * Request eligibility (PRD 4.2): may this request read or write entries?
  *
  * Reasons that cannot change during a request (admin, AJAX, cron, REST,
- * WP-CLI, XML-RPC, signed in, preview variables, disabled) are memoised at
- * once. Conditional tags are only reliable after the main query has run,
- * so before that the gate answers "not now" without memoising, and
- * computes the final answer once afterwards.
+ * WP-CLI, XML-RPC, preview variables, disabled) are memoised at once.
+ * Conditional tags are only reliable after the main query has run, so
+ * before that the gate answers "not now" without memoising, and computes
+ * the final answer (signed in included) once afterwards.
  */
 final class RequestGate
 {
@@ -38,6 +38,13 @@ final class RequestGate
             // Not memoised: the answer may be yes once the main query has run.
             $this->reason = 'main query not run';
             return false;
+        }
+
+        // Checked only now: asking before `init` would make WordPress
+        // settle the current user too early for some auth plugins.
+        if (is_user_logged_in()) {
+            $this->reason = 'signed in';
+            return $this->memo = false;
         }
 
         $late = $this->late_reason();
@@ -81,9 +88,6 @@ final class RequestGate
         }
         if (defined('XMLRPC_REQUEST') && constant('XMLRPC_REQUEST')) {
             return 'xmlrpc';
-        }
-        if (is_user_logged_in()) {
-            return 'signed in';
         }
         foreach (self::PREVIEW_VARS as $var) {
             // Presence alone disqualifies; the value is never read or used.

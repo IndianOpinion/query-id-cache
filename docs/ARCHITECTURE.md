@@ -40,6 +40,8 @@ WP_Query::get_posts()
       first store access in the request: remember the generation
       hit  -> prime posts, safety net, set found_posts/max_num_pages, return IDs
       miss -> mark the object pending, return null
+  posts_pre_query (MAX) -> Cache::pre_query_settled: if a later component
+      answered, drop the pending mark or the served `ids` count
   [fields=ids] found_posts_query (MAX) -> on a served query, "SELECT <count>"
   [fields=ids] found_posts (MAX)       -> served: reassert count; pending: record
   posts_results (MIN)   -> Cache::snapshot: raw IDs of a pending query

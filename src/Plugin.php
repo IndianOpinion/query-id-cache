@@ -67,6 +67,7 @@ final class Plugin
 
         // Serving and recording.
         add_filter('posts_pre_query', [$this->cache, 'pre_query'], 20, 2);
+        add_filter('posts_pre_query', [$this->cache, 'pre_query_settled'], PHP_INT_MAX, 2);
         add_filter('posts_results', [$this->cache, 'snapshot'], PHP_INT_MIN, 2);
         add_filter('the_posts', [$this->cache, 'record'], PHP_INT_MAX, 2);
         add_filter('found_posts_query', [$this->cache, 'found_posts_query'], PHP_INT_MAX, 2);

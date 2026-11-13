@@ -61,6 +61,46 @@ final class QueryEligibilityTest extends TestCase
     }
 
     /**
+     * Test 6: a component answering after ours is not recorded, and a
+     * count we served is not forced onto its answer (case 8).
+     */
+    public function test_steps_aside_when_answered_later(): void
+    {
+        $this->posts([1, 2, 3]);
+        $late = static fn ($posts) => [3, 2];
+        add_filter('posts_pre_query', $late, 30, 1);
+        $this->query()->query();
+        $this->shutdown();
+        $this->assertSame([], $this->blob_entries(), 'a miss answered by someone else records nothing');
+
+        // A served `ids` answer replaced later keeps the other component's count.
+        $sql = 'SELECT ids LIMIT 0, 2';
+        $this->new_request();
+        $this->query(['fields' => 'ids', 'posts_per_page' => 2], [4, 5], $sql, 9)->query();
+        $this->shutdown();
+        $this->new_request();
+        add_filter('posts_pre_query', static fn ($posts) => $posts === null ? null : [7], 30, 1);
+        add_filter('found_posts', static fn () => 1, 50);
+        $q = $this->query(['fields' => 'ids', 'posts_per_page' => 2], [], $sql, 1);
+        $this->assertSame([7], $q->query());
+        $this->assertSame(1, $q->found_posts);
+    }
+
+    /**
+     * Test 6: rows without a usable ID (a custom posts_fields clause) are not recorded (case 25).
+     */
+    public function test_rows_without_ids_are_not_recorded(): void
+    {
+        $q     = $this->query();
+        $cache = $this->plugin->cache;
+        $this->assertNull($cache->pre_query(null, $q));
+        $rows = [(object) ['post_title' => 'x']];
+        $cache->record($cache->snapshot($rows, $q), $q);
+        $this->shutdown();
+        $this->assertSame([], $this->blob_entries());
+    }
+
+    /**
      * Test 7: no matching signature leaves the query alone; first registered wins (case 10).
      */
     public function test_signature_matching_order(): void

@@ -14,6 +14,8 @@ use WP_Query;
  *
  * Hook map (see docs/ARCHITECTURE.md for why each priority):
  * - posts_pre_query, 20: serve a hit, or mark the query pending.
+ * - posts_pre_query, PHP_INT_MAX: step aside when a later component
+ *   replaced our answer or answered a pending query (case 8).
  * - posts_results, PHP_INT_MIN: snapshot the raw database IDs of a pending query.
  * - the_posts, PHP_INT_MAX: record the snapshot with the final count.
  * - found_posts_query and found_posts, PHP_INT_MAX: keep a served count
@@ -28,7 +30,7 @@ final class Cache
     /** @var SplObjectStorage<WP_Query, array{key: string, candidate: Candidate, ids: list<int>|null}> */
     private SplObjectStorage $pending;
 
-    /** @var SplObjectStorage<WP_Query, int> Served found counts, for the `ids` reassertion. */
+    /** @var SplObjectStorage<WP_Query, array{found: int, ids: list<int>}> Served `ids` answers, for the count reassertion. */
     private SplObjectStorage $served;
 
     /** @var array<string, array<string, mixed>> New entries, written at shutdown. */
@@ -79,6 +81,29 @@ final class Cache
     }
 
     /**
+     * Filter: posts_pre_query, latest priority. A component hooked after
+     * ours may still answer the query. Its answer is not ours to record,
+     * and a count we served must not be forced onto its answer.
+     *
+     * @param mixed $posts
+     *
+     * @return mixed
+     */
+    public function pre_query_settled(mixed $posts, mixed $query = null): mixed
+    {
+        if (! $query instanceof WP_Query) {
+            return $posts;
+        }
+        if ($posts !== null && $this->pending->contains($query)) {
+            $this->pending->detach($query);
+        }
+        if ($this->served->contains($query) && $posts !== $this->served[$query]['ids']) {
+            $this->served->detach($query);
+        }
+        return $posts;
+    }
+
+    /**
      * Filter: posts_results, earliest priority. Takes the raw database
      * order before any other result filter sees it.
      *
@@ -90,8 +115,16 @@ final class Cache
     {
         try {
             if ($query instanceof WP_Query && $this->pending->contains($query)) {
+                $rows = is_array($posts) ? $posts : [];
+                $ids  = self::ids_of($rows);
+                if (count($ids) !== count($rows)) {
+                    // Rows without a usable ID (a custom posts_fields
+                    // clause, say): an empty or short list would be wrong.
+                    $this->pending->detach($query);
+                    return $posts;
+                }
                 $state        = $this->pending[$query];
-                $state['ids'] = self::ids_of(is_array($posts) ? $posts : []);
+                $state['ids'] = $ids;
                 $this->pending[$query] = $state;
             }
         } catch (Throwable $e) {
@@ -134,7 +167,7 @@ final class Cache
     public function found_posts_query(mixed $sql, mixed $query = null): mixed
     {
         if ($query instanceof WP_Query && $this->served->contains($query)) {
-            return 'SELECT ' . (int) $this->served[$query];
+            return 'SELECT ' . (int) $this->served[$query]['found'];
         }
         return $sql;
     }
@@ -153,7 +186,7 @@ final class Cache
                 return $found;
             }
             if ($this->served->contains($query)) {
-                return $this->served[$query];
+                return $this->served[$query]['found'];
             }
             if ($this->pending->contains($query)) {
                 $state = $this->pending[$query];
@@ -309,7 +342,7 @@ final class Cache
         $query->found_posts   = $found;
         $query->max_num_pages = $per_page > 0 ? (int) ceil($found / $per_page) : 1;
         if ($candidate->fields === 'ids') {
-            $this->served[$query] = $found;
+            $this->served[$query] = ['found' => $found, 'ids' => $kept];
         }
 
         $this->hits++;
