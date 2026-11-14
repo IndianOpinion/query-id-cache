@@ -1,0 +1,10 @@
+parameters:
+    level: 8
+    paths:
+        - src
+        - query-id-cache.php
+        - uninstall.php
+    scanFiles:
+        - vendor/php-stubs/wordpress-stubs/wordpress-stubs.php
+        - vendor/php-stubs/wp-cli-stubs/wp-cli-stubs.php
+    treatPhpDocTypesAsCertain: false
