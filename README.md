@@ -18,6 +18,7 @@ This project came out of the work on indianopinion.org and is written from scrat
 - [Observability](#observability)
 - [Limitations](#limitations)
 - [FAQ](#faq)
+- [Contributing](#contributing)
 - [Licence](#licence)
 
 ## Install
@@ -203,6 +204,10 @@ wp query-id-cache flush                       # drop everything, bump the genera
 **Does it work with a full-page cache or CDN?** Yes, that is the setting it was built for: it speeds up page-cache misses.
 
 **Another plugin also uses `posts_pre_query`.** This plugin runs at priority 20 and steps aside whenever a value is already set.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Licence
 
